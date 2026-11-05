@@ -6,10 +6,11 @@
     <string name="url_hint">https://example.com/file.pdf</string>
     <string name="paste">Paste</string>
     <string name="clear">Clear</string>
-    <string name="format_hint">Original saves the file exactly as the server sends it. JPG / PNG / WEBP re-encode images after download.</string>
+    <string name="format_hint">Original keeps the file as served. JPG / PNG / WEBP re-encode images. Audio extracts the sound track (m4a / webm). Video re-packs the movie (mp4 / webm, no quality loss). HTML builds a viewer page next to the file.</string>
     <string name="download_now">Download now</string>
     <string name="recent">RECENT DOWNLOADS</string>
     <string name="empty">No downloads yet. Paste a link above to start.</string>
     <string name="grab">Grab</string>
     <string name="browse">Browse</string>
+    <string name="save_page">Save this page as HTML</string>
 </resources>

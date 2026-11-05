@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 export JAVA_HOME=/scratch/work/dl/jdk-17.0.21+9
 export PATH=$JAVA_HOME/bin:$PATH
 SDK=/scratch/work/android-sdk
@@ -19,14 +19,14 @@ $BT/aapt2 link -o $OUT/base.apk \
   --manifest $SRC/AndroidManifest.xml \
   --java $OUT/gen \
   --min-sdk-version 21 --target-sdk-version 35 \
-  --version-code 1 --version-name 1.0.0 \
+  --version-code 2 --version-name 1.1.0 \
   --auto-add-overlay \
   $OUT/res.zip
 
 echo "==> javac"
 find $OUT/gen -name "*.java" > $OUT/sources.txt
 find $SRC/java -name "*.java" >> $OUT/sources.txt
-javac -source 8 -target 8 -nowarn -bootclasspath $AJAR -d $OUT/classes @$OUT/sources.txt 2>&1 | grep -v "^Note:" || true
+javac -source 8 -target 8 -nowarn -bootclasspath $AJAR -d $OUT/classes @$OUT/sources.txt 2>&1 | grep -v "^Note:" || { echo "JAVAC FAILED"; exit 1; }
 
 echo "==> d8"
 find $OUT/classes -name "*.class" > $OUT/classes.txt
@@ -48,8 +48,8 @@ if [ ! -f keystore.jks ]; then
 fi
 $BT/apksigner -JXmx384m sign --ks keystore.jks --ks-pass pass:anygrab123 --key-pass pass:anygrab123 \
   --v1-signing-enabled true --v2-signing-enabled true \
-  --out AnyGrab-1.0.0.apk $OUT/aligned.apk
+  --out AnyGrab-1.1.0.apk $OUT/aligned.apk
 
 echo "==> verify"
-$BT/apksigner -JXmx384m verify --print-certs AnyGrab-1.0.0.apk | head -5
-ls -la AnyGrab-1.0.0.apk
+$BT/apksigner -JXmx384m verify --print-certs AnyGrab-1.1.0.apk | head -5
+ls -la AnyGrab-1.1.0.apk

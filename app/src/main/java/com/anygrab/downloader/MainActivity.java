@@ -144,6 +144,13 @@ public class MainActivity extends Activity {
                 etUrl.setText("");
             }
         });
+        findViewById(R.id.btnSavePage).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                saveCurrentPage();
+            }
+        });
+
         findViewById(R.id.btnClearAll).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -162,6 +169,9 @@ public class MainActivity extends Activity {
         wireChip(R.id.chipJpg, "jpg");
         wireChip(R.id.chipPng, "png");
         wireChip(R.id.chipWebp, "webp");
+        wireChip(R.id.chipAudio, "audio");
+        wireChip(R.id.chipVideo, "video");
+        wireChip(R.id.chipHtml, "html");
 
         list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -198,8 +208,9 @@ public class MainActivity extends Activity {
 
     private void applyFormat(String value) {
         format = value;
-        int[] ids = {R.id.chipAuto, R.id.chipJpg, R.id.chipPng, R.id.chipWebp};
-        String[] values = {"auto", "jpg", "png", "webp"};
+        int[] ids = {R.id.chipAuto, R.id.chipJpg, R.id.chipPng, R.id.chipWebp,
+                R.id.chipAudio, R.id.chipVideo, R.id.chipHtml};
+        String[] values = {"auto", "jpg", "png", "webp", "audio", "video", "html"};
         for (int i = 0; i < ids.length; i++) {
             TextView chip = (TextView) findViewById(ids[i]);
             boolean active = values[i].equals(value);
@@ -464,35 +475,80 @@ public class MainActivity extends Activity {
         if (!isSuccessful(id)) {
             return;
         }
-        toast("Converting to " + wanted.toUpperCase() + "…");
+        toast("Converting to " + label(wanted) + "\u2026");
         new Thread(new Runnable() {
             @Override
             public void run() {
-                String message;
-                try {
-                    File converted = ImageConvert.convert(MainActivity.this, id, wanted);
-                    String display = converted.getName();
-                    String mime = wanted.equals("png") ? "image/png"
-                            : (wanted.equals("webp") ? "image/webp" : "image/jpeg");
-                    ImageConvert.publish(MainActivity.this, converted, display, mime);
-                    try {
-                        downloadManager.remove(id);
-                    } catch (Exception ignored) {
-                    }
-                    message = "Saved " + display + " to Downloads/AnyGrab";
-                } catch (Exception e) {
-                    message = "Could not convert this file (" + e.getMessage() + "). The original was kept.";
-                }
-                final String finalMessage = message;
+                final String message = runConversion(id, wanted);
                 ui.post(new Runnable() {
                     @Override
                     public void run() {
-                        toast(finalMessage);
+                        toast(message);
                         refresh();
                     }
                 });
             }
         }).start();
+    }
+
+    private String label(String format) {
+        if ("audio".equals(format)) {
+            return "audio";
+        }
+        if ("video".equals(format)) {
+            return "video";
+        }
+        if ("html".equals(format)) {
+            return "HTML";
+        }
+        return format.toUpperCase();
+    }
+
+    /** Runs the chosen conversion and returns the message to show. Never throws. */
+    private String runConversion(long id, String wanted) {
+        try {
+            if ("html".equals(wanted)) {
+                DownloadItem item = findById(id);
+                String name = item == null ? "file" : item.name;
+                String mime = item == null ? "application/octet-stream" : item.mime;
+                File page = HtmlWrap.wrap(MainActivity.this, name, mime);
+                ImageConvert.publish(MainActivity.this, page, page.getName(), "text/html");
+                return "Saved " + page.getName() + " next to the file";
+            }
+            if ("audio".equals(wanted) || "video".equals(wanted)) {
+                MediaConvert.Result result = "audio".equals(wanted)
+                        ? MediaConvert.extractAudio(MainActivity.this, id)
+                        : MediaConvert.remuxVideo(MainActivity.this, id);
+                ImageConvert.publish(MainActivity.this, result.file, result.displayName, result.mime);
+                try {
+                    downloadManager.remove(id);
+                } catch (Exception ignored) {
+                }
+                return result.note + " \u00b7 saved " + result.displayName;
+            }
+            File converted = ImageConvert.convert(MainActivity.this, id, wanted);
+            String display = converted.getName();
+            String mime = wanted.equals("png") ? "image/png"
+                    : (wanted.equals("webp") ? "image/webp" : "image/jpeg");
+            ImageConvert.publish(MainActivity.this, converted, display, mime);
+            try {
+                downloadManager.remove(id);
+            } catch (Exception ignored) {
+            }
+            return "Saved " + display + " to Downloads/AnyGrab";
+        } catch (Exception e) {
+            String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            return "Could not convert (" + detail + "). The original file was kept.";
+        }
+    }
+
+    private DownloadItem findById(long id) {
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).id == id) {
+                return items.get(i);
+            }
+        }
+        return null;
     }
 
     private boolean isSuccessful(long id) {
@@ -640,6 +696,64 @@ public class MainActivity extends Activity {
         }
         toast("Finished downloads removed from the list");
         refresh();
+    }
+
+    private void saveCurrentPage() {
+        String url = web.getUrl();
+        if (url == null) {
+            toast("Open a page first");
+            return;
+        }
+        toast("Capturing the page\u2026");
+        web.evaluateJavascript(
+                "(function(){try{return JSON.stringify({t:document.title||'page',"
+                        + "h:'<!doctype html>\\n'+document.documentElement.outerHTML});}"
+                        + "catch(e){return '';}})()",
+                new android.webkit.ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if (value == null || value.equals("null") || value.length() < 8) {
+                            toast("This page cannot be captured");
+                            return;
+                        }
+                        final String title;
+                        final String html;
+                        try {
+                            Object decoded = new org.json.JSONTokener(value).nextValue();
+                            org.json.JSONObject object = new org.json.JSONObject((String) decoded);
+                            title = object.optString("t", "page");
+                            html = object.optString("h", "");
+                        } catch (Exception e) {
+                            toast("Could not read the page");
+                            return;
+                        }
+                        if (html.length() == 0) {
+                            toast("Nothing to save on this page");
+                            return;
+                        }
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                String text;
+                                try {
+                                    File page = HtmlWrap.savePage(MainActivity.this, title, html);
+                                    ImageConvert.publish(MainActivity.this, page, page.getName(), "text/html");
+                                    text = "Saved " + page.getName() + " to Downloads/AnyGrab";
+                                } catch (Exception e) {
+                                    text = "Could not save the page: " + e.getMessage();
+                                }
+                                final String message = text;
+                                ui.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        toast(message);
+                                        refresh();
+                                    }
+                                });
+                            }
+                        }).start();
+                    }
+                });
     }
 
     private void openExternal(Uri uri) {

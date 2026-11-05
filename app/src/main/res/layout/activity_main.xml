@@ -266,6 +266,51 @@
                             android:text="WEBP"
                             android:textColor="#9FB3C8"
                             android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/chipAudio"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp"
+                            android:background="@drawable/bg_chip"
+                            android:fontFamily="sans-serif-medium"
+                            android:paddingLeft="16dp"
+                            android:paddingTop="9dp"
+                            android:paddingRight="16dp"
+                            android:paddingBottom="9dp"
+                            android:text="Audio"
+                            android:textColor="#9FB3C8"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/chipVideo"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp"
+                            android:background="@drawable/bg_chip"
+                            android:fontFamily="sans-serif-medium"
+                            android:paddingLeft="16dp"
+                            android:paddingTop="9dp"
+                            android:paddingRight="16dp"
+                            android:paddingBottom="9dp"
+                            android:text="Video"
+                            android:textColor="#9FB3C8"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/chipHtml"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp"
+                            android:background="@drawable/bg_chip"
+                            android:fontFamily="sans-serif-medium"
+                            android:paddingLeft="16dp"
+                            android:paddingTop="9dp"
+                            android:paddingRight="16dp"
+                            android:paddingBottom="9dp"
+                            android:text="HTML"
+                            android:textColor="#9FB3C8"
+                            android:textSize="12sp" />
                     </LinearLayout>
                 </HorizontalScrollView>
 
@@ -394,6 +439,20 @@
                 android:max="100"
                 android:progressTint="#22D3A6"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnSavePage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_chip"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/save_page"
+                android:textColor="#22D3A6"
+                android:textSize="12sp" />
 
             <WebView
                 android:id="@+id/web"
