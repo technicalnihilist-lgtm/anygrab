@@ -1,0 +1,6 @@
+build/
+*.iml
+.gradle/
+local.properties
+keystore.jks
+hs_err_pid*.log

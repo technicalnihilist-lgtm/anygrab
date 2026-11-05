@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AnyGrab</string>
+    <string name="tagline">Any URL · any format · on-device</string>
+    <string name="github">GitHub</string>
+    <string name="url_hint">https://example.com/file.pdf</string>
+    <string name="paste">Paste</string>
+    <string name="clear">Clear</string>
+    <string name="format_hint">Original saves the file exactly as the server sends it. JPG / PNG / WEBP re-encode images after download.</string>
+    <string name="download_now">Download now</string>
+    <string name="recent">RECENT DOWNLOADS</string>
+    <string name="empty">No downloads yet. Paste a link above to start.</string>
+    <string name="grab">Grab</string>
+    <string name="browse">Browse</string>
+</resources>
