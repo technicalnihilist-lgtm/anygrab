@@ -6,7 +6,7 @@
     <string name="url_hint">https://example.com/file.pdf</string>
     <string name="paste">Paste</string>
     <string name="clear">Clear</string>
-    <string name="format_hint">Original keeps the file as served. JPG / PNG / WEBP re-encode images. Audio extracts the sound track (m4a / webm). Video re-packs the movie (mp4 / webm, no quality loss). HTML builds a viewer page next to the file.</string>
+    <string name="format_hint">Audio and Video also work on a normal web page link: AnyGrab finds the media behind it, including HLS (.m3u8) streams. Original keeps the file as served.</string>
     <string name="download_now">Download now</string>
     <string name="recent">RECENT DOWNLOADS</string>
     <string name="empty">No downloads yet. Paste a link above to start.</string>

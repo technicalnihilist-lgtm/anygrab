@@ -4,3 +4,4 @@ build/
 local.properties
 keystore.jks
 hs_err_pid*.log
+test/out/

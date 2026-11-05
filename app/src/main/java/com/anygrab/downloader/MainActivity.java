@@ -179,8 +179,9 @@ public class MainActivity extends Activity {
                 DownloadItem item = items.get(position);
                 if (item.status == DownloadManager.STATUS_SUCCESSFUL) {
                     openDownload(item);
-                } else if (!item.isActive()) {
-                    etUrl.setText(REPO_URL);
+                } else if (!item.isActive() && item.uri != null && item.uri.length() > 0) {
+                    etUrl.setText(item.uri);
+                    startFromField(item.uri);
                 }
             }
         });
@@ -387,20 +388,54 @@ public class MainActivity extends Activity {
         busy = true;
         btnDownload.setText("Checking link…");
         etUrl.setText(url);
+        final String chosen = format;
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final Net.Info info = Net.probe(url);
+                boolean wantsMedia = "audio".equals(chosen) || "video".equals(chosen);
+                Net.Info info = Net.probe(url);
+                String target = url;
+                Net.Info targetInfo = info;
+                boolean nothingOnPage = false;
+
+                if (wantsMedia && isHtmlPage(info.mime)) {
+                    PageGrab.Found found = PageGrab.findMedia(url, "audio".equals(chosen));
+                    if (found == null) {
+                        nothingOnPage = true;
+                    } else {
+                        target = found.url;
+                        targetInfo = Net.probe(found.url);
+                        if (isHtmlPage(targetInfo.mime)) {
+                            targetInfo.mime = "audio".equals(chosen) ? "audio/mpeg" : "video/mp4";
+                        }
+                    }
+                }
+
+                final String finalTarget = target;
+                final Net.Info finalInfo = targetInfo;
+                final boolean blocked = nothingOnPage;
                 ui.post(new Runnable() {
                     @Override
                     public void run() {
                         busy = false;
                         btnDownload.setText(R.string.download_now);
-                        enqueue(url, info);
+                        if (blocked) {
+                            toast("No audio or video file found on that page. Paste the direct file link instead.");
+                            return;
+                        }
+                        enqueue(finalTarget, finalInfo);
                     }
                 });
             }
         }).start();
+    }
+
+    private static boolean isHtmlPage(String mime) {
+        if (mime == null) {
+            return false;
+        }
+        String value = mime.toLowerCase(java.util.Locale.US);
+        return value.contains("text/html") || value.contains("xhtml");
     }
 
     @Override
@@ -419,6 +454,10 @@ public class MainActivity extends Activity {
     }
 
     private void enqueue(String url, Net.Info info) {
+        if (url.toLowerCase(java.util.Locale.US).contains(".m3u8")) {
+            startStreamDownload(url);
+            return;
+        }
         try {
             String name = Net.sanitize(info.fileName);
             if (name.length() == 0) {
@@ -441,6 +480,45 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             toast("Could not start the download: " + e.getMessage());
         }
+    }
+
+    private void startStreamDownload(final String url) {
+        final boolean audioOnly = "audio".equals(format);
+        busy = true;
+        btnDownload.setText("Stream");
+        toast("Downloading the stream, this can take a while");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String message;
+                try {
+                    File raw = HlsDownloader.download(MainActivity.this, url, audioOnly);
+                    String title = "stream-" + System.currentTimeMillis();
+                    MediaConvert.Result result = audioOnly
+                            ? MediaConvert.audioFromFile(MainActivity.this, raw, title)
+                            : MediaConvert.videoFromFile(MainActivity.this, raw, title);
+                    File output = result.file != null ? result.file : raw;
+                    String name = result.displayName != null ? result.displayName : raw.getName();
+                    String mime = result.mime != null ? result.mime
+                            : (audioOnly ? "audio/mp4" : "video/mp4");
+                    ImageConvert.publish(MainActivity.this, output, name, mime);
+                    message = "Saved " + name + " to Downloads/AnyGrab";
+                } catch (Exception e) {
+                    String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                    message = "Stream download failed: " + detail;
+                }
+                final String finalMessage = message;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        busy = false;
+                        btnDownload.setText(R.string.download_now);
+                        toast(finalMessage);
+                        refresh();
+                    }
+                });
+            }
+        }).start();
     }
 
     private String uniqueName(String name) {
@@ -517,8 +595,11 @@ public class MainActivity extends Activity {
             }
             if ("audio".equals(wanted) || "video".equals(wanted)) {
                 MediaConvert.Result result = "audio".equals(wanted)
-                        ? MediaConvert.extractAudio(MainActivity.this, id)
-                        : MediaConvert.remuxVideo(MainActivity.this, id);
+                        ? MediaConvert.audioFromDownload(MainActivity.this, id)
+                        : MediaConvert.videoFromDownload(MainActivity.this, id);
+                if (result.file == null) {
+                    return result.note;
+                }
                 ImageConvert.publish(MainActivity.this, result.file, result.displayName, result.mime);
                 try {
                     downloadManager.remove(id);
@@ -604,6 +685,8 @@ public class MainActivity extends Activity {
                     item.done = doneIndex >= 0 ? cursor.getLong(doneIndex) : 0L;
                     item.status = statusIndex >= 0 ? cursor.getInt(statusIndex) : 0;
                     item.reason = reasonIndex >= 0 ? reasonText(cursor.getInt(reasonIndex)) : "";
+                    int uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_URI);
+                    item.uri = uriIndex >= 0 ? cursor.getString(uriIndex) : "";
                     items.add(item);
                 }
             }

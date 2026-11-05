@@ -10,131 +10,151 @@ import android.net.Uri;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.util.Locale;
 
 /**
- * Pulls audio or video out of a downloaded media file using the platform
- * MediaExtractor / MediaMuxer pair. Nothing is re-encoded: the compressed
- * samples are copied into a fresh container, so it is fast and lossless.
+ * Pulls the audio or the video out of a media file using the platform
+ * MediaExtractor / MediaMuxer pair. Samples are copied, never re-encoded.
+ *
+ * The extractor is configured exactly once: calling selectTrack() again while
+ * reading resets that track to its first sample, which is what broke 1.1.0.
+ * With several tracks selected we rely on getSampleTrackIndex() instead.
  */
 public final class MediaConvert {
 
     public static class Result {
+        /** Null when the file already was what the user asked for. */
         public File file;
         public String displayName;
         public String mime;
         public String note;
     }
 
-    private MediaConvert() {
-    }
-
     private static final int MP4 = MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4;
     private static final int WEBM = MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM;
 
-    public static Result extractAudio(Context ctx, long downloadId) throws Exception {
+    private MediaConvert() {
+    }
+
+    public static Result audioFromDownload(Context ctx, long id) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
         try {
-            extractor.setDataSource(ctx, uriOf(ctx, downloadId), null);
-            int audio = -1;
-            int video = -1;
-            MediaFormat audioFormat = null;
-            for (int i = 0; i < extractor.getTrackCount(); i++) {
-                MediaFormat format = extractor.getTrackFormat(i);
-                String mime = format.getString(MediaFormat.KEY_MIME);
-                if (mime == null) {
-                    continue;
-                }
-                if (mime.startsWith("audio/") && audio < 0) {
-                    audio = i;
-                    audioFormat = format;
-                } else if (mime.startsWith("video/") && video < 0) {
-                    video = i;
-                }
-            }
-            if (audio < 0 || audioFormat == null) {
-                throw new Exception("No audio track in this file");
-            }
-            if (video < 0) {
-                throw new Exception("This file is already audio only");
-            }
-
-            String mime = audioFormat.getString(MediaFormat.KEY_MIME);
-            boolean webm = mime != null && (mime.contains("opus") || mime.contains("vorbis"));
-            int container = webm ? WEBM : MP4;
-            String extension = webm ? "webm" : "m4a";
-
-            String title = titleOf(ctx, downloadId);
-            String base = stripExtension(title);
-            File out = new File(ctx.getCacheDir(), Net.sanitize(base) + "." + extension);
-
-            Result result = new Result();
-            result.file = out;
-            result.displayName = out.getName();
-            result.mime = webm ? "audio/webm" : "audio/mp4";
-            result.note = "Audio track extracted (" + extension + ")";
-
-            muxSingleTrack(extractor, audio, container, out.getAbsolutePath());
-            return result;
+            extractor.setDataSource(ctx, uriOf(ctx, id), null);
+            return muxAudio(ctx, extractor, titleOf(ctx, id));
         } finally {
-            try {
-                extractor.release();
-            } catch (Exception ignored) {
-            }
+            release(extractor);
         }
     }
 
-    public static Result remuxVideo(Context ctx, long downloadId) throws Exception {
+    public static Result videoFromDownload(Context ctx, long id) throws Exception {
         MediaExtractor extractor = new MediaExtractor();
         try {
-            extractor.setDataSource(ctx, uriOf(ctx, downloadId), null);
-            int video = -1;
-            int audio = -1;
-            String videoMime = null;
-            for (int i = 0; i < extractor.getTrackCount(); i++) {
-                MediaFormat format = extractor.getTrackFormat(i);
-                String mime = format.getString(MediaFormat.KEY_MIME);
-                if (mime == null) {
-                    continue;
-                }
-                if (mime.startsWith("video/") && video < 0) {
-                    video = i;
-                    videoMime = mime;
-                } else if (mime.startsWith("audio/") && audio < 0) {
-                    audio = i;
-                }
-            }
-            if (video < 0) {
-                throw new Exception("No video track in this file");
-            }
-            boolean webm = videoMime != null
-                    && (videoMime.contains("vp8") || videoMime.contains("vp9") || videoMime.contains("av01"));
-            int container = webm ? WEBM : MP4;
-            String extension = webm ? "webm" : "mp4";
-
-            String title = titleOf(ctx, downloadId);
-            String base = stripExtension(title);
-            File out = new File(ctx.getCacheDir(), Net.sanitize(base) + "." + extension);
-
-            Result result = new Result();
-            result.file = out;
-            result.displayName = out.getName();
-            result.mime = webm ? "video/webm" : "video/mp4";
-            result.note = "Video remuxed to " + extension + " (no quality loss)";
-
-            muxTracks(extractor, video, audio, container, out.getAbsolutePath());
-            return result;
+            extractor.setDataSource(ctx, uriOf(ctx, id), null);
+            return muxVideo(ctx, extractor, titleOf(ctx, id));
         } finally {
-            try {
-                extractor.release();
-            } catch (Exception ignored) {
-            }
+            release(extractor);
         }
     }
 
-    private static void muxSingleTrack(MediaExtractor extractor, int track, int container, String path)
+    public static Result audioFromFile(Context ctx, File source, String title) throws Exception {
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(source.getAbsolutePath());
+            return muxAudio(ctx, extractor, title);
+        } finally {
+            release(extractor);
+        }
+    }
+
+    public static Result videoFromFile(Context ctx, File source, String title) throws Exception {
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(source.getAbsolutePath());
+            return muxVideo(ctx, extractor, title);
+        } finally {
+            release(extractor);
+        }
+    }
+
+    private static Result muxAudio(Context ctx, MediaExtractor extractor, String title) throws Exception {
+        int audioTrack = -1;
+        MediaFormat audioFormat = null;
+        boolean hasVideo = false;
+        for (int i = 0; i < extractor.getTrackCount(); i++) {
+            MediaFormat format = extractor.getTrackFormat(i);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mime == null) {
+                continue;
+            }
+            if (mime.startsWith("audio/") && audioTrack < 0) {
+                audioTrack = i;
+                audioFormat = format;
+            } else if (mime.startsWith("video/")) {
+                hasVideo = true;
+            }
+        }
+        if (audioTrack < 0 || audioFormat == null) {
+            throw new Exception("this file has no audio track");
+        }
+
+        Result result = new Result();
+        if (!hasVideo) {
+            result.note = "That file is already audio only, kept as it is";
+            return result;
+        }
+
+        String mime = audioFormat.getString(MediaFormat.KEY_MIME);
+        boolean webm = mime != null && (mime.contains("opus") || mime.contains("vorbis"));
+        String extension = webm ? "webm" : "m4a";
+        File out = new File(ctx.getCacheDir(),
+                Net.sanitize(MediaConvert.stripExtension(title)) + "." + extension);
+        writeSingleTrack(extractor, audioTrack, webm ? WEBM : MP4, out);
+
+        result.file = out;
+        result.displayName = out.getName();
+        result.mime = webm ? "audio/webm" : "audio/mp4";
+        result.note = "Audio saved as " + extension;
+        return result;
+    }
+
+    private static Result muxVideo(Context ctx, MediaExtractor extractor, String title) throws Exception {
+        int videoTrack = -1;
+        int audioTrack = -1;
+        String videoMime = null;
+        for (int i = 0; i < extractor.getTrackCount(); i++) {
+            MediaFormat format = extractor.getTrackFormat(i);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mime == null) {
+                continue;
+            }
+            if (mime.startsWith("video/") && videoTrack < 0) {
+                videoTrack = i;
+                videoMime = mime;
+            } else if (mime.startsWith("audio/") && audioTrack < 0) {
+                audioTrack = i;
+            }
+        }
+        if (videoTrack < 0) {
+            throw new Exception("this file has no video track");
+        }
+
+        boolean webm = videoMime != null
+                && (videoMime.contains("vp8") || videoMime.contains("vp9") || videoMime.contains("av01"));
+        String extension = webm ? "webm" : "mp4";
+        File out = new File(ctx.getCacheDir(),
+                Net.sanitize(MediaConvert.stripExtension(title)) + "." + extension);
+        writeTracks(extractor, videoTrack, audioTrack, webm ? WEBM : MP4, out);
+
+        Result result = new Result();
+        result.file = out;
+        result.displayName = out.getName();
+        result.mime = webm ? "video/webm" : "video/mp4";
+        result.note = "Video saved as " + extension + " (no quality loss)";
+        return result;
+    }
+
+    private static void writeSingleTrack(MediaExtractor extractor, int track, int container, File out)
             throws Exception {
-        MediaMuxer muxer = new MediaMuxer(path, container);
+        MediaMuxer muxer = new MediaMuxer(out.getAbsolutePath(), container);
         boolean started = false;
         try {
             MediaFormat format = extractor.getTrackFormat(track);
@@ -143,7 +163,7 @@ public final class MediaConvert {
             muxer.start();
             started = true;
 
-            ByteBuffer buffer = ByteBuffer.allocateDirect(1 << 20);
+            ByteBuffer buffer = ByteBuffer.allocate(1 << 20);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             while (true) {
                 int size = extractor.readSampleData(buffer, 0);
@@ -174,9 +194,10 @@ public final class MediaConvert {
         }
     }
 
-    private static void muxTracks(MediaExtractor extractor, int videoTrack, int audioTrack,
-                                  int container, String path) throws Exception {
-        MediaMuxer muxer = new MediaMuxer(path, container);
+    /** Both tracks are selected once up front; samples are routed by getSampleTrackIndex(). */
+    private static void writeTracks(MediaExtractor extractor, int videoTrack, int audioTrack,
+                                    int container, File out) throws Exception {
+        MediaMuxer muxer = new MediaMuxer(out.getAbsolutePath(), container);
         boolean started = false;
         try {
             int outVideo = muxer.addTrack(extractor.getTrackFormat(videoTrack));
@@ -188,64 +209,34 @@ public final class MediaConvert {
                     outAudio = -1;
                 }
             }
+
+            extractor.selectTrack(videoTrack);
+            if (outAudio >= 0) {
+                extractor.selectTrack(audioTrack);
+            }
             muxer.start();
             started = true;
 
-            ByteBuffer buffer = ByteBuffer.allocateDirect(1 << 20);
+            ByteBuffer buffer = ByteBuffer.allocate(1 << 20);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-
-            extractor.selectTrack(videoTrack);
-            long videoTime = extractor.getSampleTime();
-            boolean videoDone = videoTime < 0;
-
-            long audioTime = Long.MAX_VALUE;
-            boolean audioDone = outAudio < 0;
-            if (!audioDone) {
-                extractor.selectTrack(audioTrack);
-                audioTime = extractor.getSampleTime();
-                audioDone = audioTime < 0;
-            }
-
-            while (!videoDone || !audioDone) {
-                boolean takeVideo = !videoDone && (audioDone || videoTime <= audioTime);
-                if (takeVideo) {
-                    extractor.selectTrack(videoTrack);
-                    int size = extractor.readSampleData(buffer, 0);
-                    if (size < 0) {
-                        videoDone = true;
-                        continue;
-                    }
-                    info.offset = 0;
-                    info.size = size;
-                    info.presentationTimeUs = extractor.getSampleTime();
-                    info.flags = (extractor.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0
-                            ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
-                    muxer.writeSampleData(outVideo, buffer, info);
-                    if (!extractor.advance()) {
-                        videoDone = true;
-                    } else {
-                        videoTime = extractor.getSampleTime();
-                        videoDone = videoTime < 0;
-                    }
-                } else {
-                    extractor.selectTrack(audioTrack);
-                    int size = extractor.readSampleData(buffer, 0);
-                    if (size < 0) {
-                        audioDone = true;
-                        continue;
-                    }
-                    info.offset = 0;
-                    info.size = size;
-                    info.presentationTimeUs = extractor.getSampleTime();
-                    info.flags = (extractor.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0
-                            ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
-                    muxer.writeSampleData(outAudio, buffer, info);
-                    if (!extractor.advance()) {
-                        audioDone = true;
-                    } else {
-                        audioTime = extractor.getSampleTime();
-                        audioDone = audioTime < 0;
-                    }
+            while (true) {
+                int track = extractor.getSampleTrackIndex();
+                if (track < 0) {
+                    break;
+                }
+                int size = extractor.readSampleData(buffer, 0);
+                if (size < 0) {
+                    break;
+                }
+                info.offset = 0;
+                info.size = size;
+                info.presentationTimeUs = extractor.getSampleTime();
+                info.flags = (extractor.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0
+                        ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
+                int target = (track == audioTrack && outAudio >= 0) ? outAudio : outVideo;
+                muxer.writeSampleData(target, buffer, info);
+                if (!extractor.advance()) {
+                    break;
                 }
             }
         } finally {
@@ -262,11 +253,18 @@ public final class MediaConvert {
         }
     }
 
+    private static void release(MediaExtractor extractor) {
+        try {
+            extractor.release();
+        } catch (Exception ignored) {
+        }
+    }
+
     static Uri uriOf(Context ctx, long downloadId) {
         DownloadManager dm = (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
         Uri uri = dm.getUriForDownloadedFile(downloadId);
         if (uri == null) {
-            throw new IllegalStateException("File is not available");
+            throw new IllegalStateException("the file is no longer available");
         }
         return uri;
     }
@@ -305,25 +303,5 @@ public final class MediaConvert {
             return name.substring(0, dot);
         }
         return name;
-    }
-
-    static String mimeFor(String extension) {
-        String ext = extension == null ? "" : extension.toLowerCase(Locale.US);
-        if (ext.equals("m4a")) {
-            return "audio/mp4";
-        }
-        if (ext.equals("mp3")) {
-            return "audio/mpeg";
-        }
-        if (ext.equals("webm")) {
-            return "video/webm";
-        }
-        if (ext.equals("mp4")) {
-            return "video/mp4";
-        }
-        if (ext.equals("html")) {
-            return "text/html";
-        }
-        return "application/octet-stream";
     }
 }

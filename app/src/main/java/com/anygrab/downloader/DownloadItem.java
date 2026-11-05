@@ -8,6 +8,7 @@ public class DownloadItem {
     public long done = 0L;
     public int status = 0;
     public String reason = "";
+    public String uri = "";
 
     public boolean isActive() {
         return status == android.app.DownloadManager.STATUS_PENDING

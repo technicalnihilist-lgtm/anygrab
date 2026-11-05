@@ -19,7 +19,7 @@ $BT/aapt2 link -o $OUT/base.apk \
   --manifest $SRC/AndroidManifest.xml \
   --java $OUT/gen \
   --min-sdk-version 21 --target-sdk-version 35 \
-  --version-code 2 --version-name 1.1.0 \
+  --version-code 3 --version-name 1.2.0 \
   --auto-add-overlay \
   $OUT/res.zip
 
@@ -48,8 +48,8 @@ if [ ! -f keystore.jks ]; then
 fi
 $BT/apksigner -JXmx384m sign --ks keystore.jks --ks-pass pass:anygrab123 --key-pass pass:anygrab123 \
   --v1-signing-enabled true --v2-signing-enabled true \
-  --out AnyGrab-1.1.0.apk $OUT/aligned.apk
+  --out AnyGrab-1.2.0.apk $OUT/aligned.apk
 
 echo "==> verify"
-$BT/apksigner -JXmx384m verify --print-certs AnyGrab-1.1.0.apk | head -5
-ls -la AnyGrab-1.1.0.apk
+$BT/apksigner -JXmx384m verify --print-certs AnyGrab-1.2.0.apk | head -5
+ls -la AnyGrab-1.2.0.apk
